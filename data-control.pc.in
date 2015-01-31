@@ -1,0 +1,15 @@
+
+# Package Information for pkg-config
+
+prefix=@PREFIX@
+exec_prefix=@EXEC_PREFIX@
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: @PC_NAME@
+Description: @PACKAGE_DESCRIPTION@
+Version: @VERSION@
+Requires:
+Libs: -L${libdir} -ldata-control
+Cflags: -I${includedir}
+
