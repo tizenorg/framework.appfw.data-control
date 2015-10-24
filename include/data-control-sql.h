@@ -121,19 +121,19 @@ typedef struct
  *
  *		result = datacontrol_sql_create(&provider);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Creating data control provider is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Creating data control provider is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_sql_set_provider_id(provider, provider_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Setting providerID is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Setting providerID is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_sql_set_data_id(provider, data_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Setting dataID is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Setting dataID is failed with error: %d", result);
  *			return result;
  *		}
  *
@@ -141,7 +141,7 @@ typedef struct
  *
  *		result = datacontrol_sql_destroy(provider);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Destorying data control provider is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Destorying data control provider is failed with error: %d", result);
  *		}
  *
  *		return result;
@@ -251,10 +251,10 @@ EXPORT_API int datacontrol_sql_unregister_response_cb(datacontrol_h provider);
  *
  *	void sql_delete_response_cb(int request_id, datacontrol_h provider, bool provider_result, const char *error) {
  *		if (provider_result) {
- *			LOGI("The delete operation is successful");
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The delete operation is successful");
  *		}
  *		else {
- *			LOGI("The delete operation for the request %d is failed. error message: %s", request_id, error);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The delete operation for the request %d is failed. error message: %s", request_id, error);
  *		}
  *	}
  *
@@ -269,16 +269,16 @@ EXPORT_API int datacontrol_sql_unregister_response_cb(datacontrol_h provider);
  *		sql_callback.delete = sql_delete_response_cb;
  *		result = datacontrol_sql_register_response_cb(provider, &sql_callback);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Registering the callback function is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Registering the callback function is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_sql_delete(provider, where, &req_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Deleting is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Deleting is failed with error: %d", result);
  *		}
  *		else {
- *			LOGI("req_id is %d", req_id);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "req_id is %d", req_id);
  *		}
  *
  *		return result;
@@ -309,10 +309,10 @@ EXPORT_API int datacontrol_sql_delete(datacontrol_h provider, const char *where,
  *
  *	void sql_insert_response_cb(int request_id, datacontrol_h provider, long long inserted_row_id, bool provider_result, const char *error) {
  *		if (provider_result) {
- *			LOGI("The insert operation is successful");
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The insert operation is successful");
  *		}
  *		else {
- *			LOGI("The insert operation for the request %d is failed. error message: %s", request_id, error);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The insert operation for the request %d is failed. error message: %s", request_id, error);
  *		}
  *	}
  *
@@ -327,7 +327,7 @@ EXPORT_API int datacontrol_sql_delete(datacontrol_h provider, const char *where,
  *		sql_callback.insert = sql_insert_response_cb;
  *		result = datacontrol_sql_register_response_cb(provider, &sql_callback);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Registering the callback function is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Registering the callback function is failed with error: %d", result);
  *			return result;
  *		}
  *
@@ -337,10 +337,10 @@ EXPORT_API int datacontrol_sql_delete(datacontrol_h provider, const char *where,
  *
  *		result = datacontrol_sql_insert(provider, b, &req_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Inserting is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Inserting is failed with error: %d", result);
  *		}
  *		else {
- *			LOGI("req_id is %d", req_id);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "req_id is %d", req_id);
  *		}
  *
  *		bundle_free(b);
@@ -374,10 +374,10 @@ EXPORT_API int datacontrol_sql_insert(datacontrol_h provider, const bundle* inse
  *
  *	void sql_select_response_cb(int request_id, datacontrol_h provider, resultset_cursor *enumerator, bool provider_result, const char *error) {
  *		if (provider_result) {
- *			LOGI("The select operation is successful");
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The select operation is successful");
  *		}
  *		else {
- *			LOGI("The select operation for the request %d is failed. error message: %s", request_id, error);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The select operation for the request %d is failed. error message: %s", request_id, error);
  *		}
  *	}
  *
@@ -396,16 +396,16 @@ EXPORT_API int datacontrol_sql_insert(datacontrol_h provider, const bundle* inse
  *		sql_callback.select = sql_select_response_cb;
  *		result = datacontrol_sql_register_response_cb(provider, &sql_callback);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Registering the callback function is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Registering the callback function is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_sql_select(provider, column_list, 2, where, order, &req_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Selecting is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Selecting is failed with error: %d", result);
  *		}
  *		else {
- *			LOGI("req_id is %d", req_id);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "req_id is %d", req_id);
  *		}
  *
  *		return result;
@@ -461,10 +461,10 @@ EXPORT_API int datacontrol_sql_select_with_page(datacontrol_h provider, char **c
  *
  *	void sql_update_response_cb(int request_id, datacontrol_h provider, bool provider_result, const char *error) {
  *		if (provider_result) {
- *			LOGI("The update operation is successful");
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The update operation is successful");
  *		}
  *		else {
- *			LOGI("The update operation for the request %d is failed. error message: %s", request_id, error);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The update operation for the request %d is failed. error message: %s", request_id, error);
  *		}
  *	}
  *
@@ -480,7 +480,7 @@ EXPORT_API int datacontrol_sql_select_with_page(datacontrol_h provider, char **c
  *		sql_callback.update = sql_update_response_cb;
  *		result = datacontrol_sql_register_response_cb(provider, &sql_callback);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Registering the callback function is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Registering the callback function is failed with error: %d", result);
  *			return result;
  *		}
  *
@@ -489,10 +489,10 @@ EXPORT_API int datacontrol_sql_select_with_page(datacontrol_h provider, char **c
  *
  *		result = datacontrol_sql_update(provider, b, where, &req_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Updating is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Updating is failed with error: %d", result);
  *		}
  *		else {
- *			LOGI("req_id is %d", req_id);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "req_id is %d", req_id);
  *		}
  *
  *		bundle_free(b);

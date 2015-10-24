@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <security-server.h>
+#include <limits.h>
 
 #include "data-control-sql-cursor.h"
 
@@ -14,6 +15,8 @@
 #endif
 
 #define MAX_ROW_COUNT	        1024
+#define MAX_COLUMN_NAME_LEN	4096
+#define ERR_LEN 128
 
 static int *row_offset_list = NULL;
 
@@ -267,46 +270,60 @@ int datacontrol_sql_get_column_count(resultset_cursor *cursor)
 
 int datacontrol_sql_get_column_name(resultset_cursor *cursor, int column_index, char *name)
 {
-	char col_name[4096] = {0, };
+	char col_name[MAX_COLUMN_NAME_LEN] = {0, };
 	int i = 0;
 	int ret = 0;
 	FILE *fp = NULL;
 	int resultset_fd = 0;
+	int col_name_len = 0;
+	char err_buf[ERR_LEN] = { 0, };
 
 	resultset_fd = dup(cursor->resultset_fd);
 	if (resultset_fd < 0)
 	{
-		LOGE("unable to dup resultset_fd: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to dup resultset_fd: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
 	fp = fdopen(resultset_fd, "r");
 	if (fp == NULL)
 	{
-		LOGE("unable to open resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to open resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
 	ret = fseek(fp, cursor->resultset_col_name_offset, SEEK_SET);
 	if (ret < 0)
 	{
-		LOGE("unable to seek in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to seek in the resultset file: %s", err_buf);
 		fclose(fp);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
 	for (i = 0; i < column_index + 1; i++)
 	{
-		if (!(fgets(col_name, 4096, fp)))
+		if (!(fgets(col_name, MAX_COLUMN_NAME_LEN, fp)))
 		{
-			LOGE("unable to read a line in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read a line in the resultset file: %s", err_buf);
 			fclose(fp);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 	}
 
-	memset(name, 0, strlen(col_name)); // To avoid copying newline
-	memcpy(name, col_name, strlen(col_name) - 1);
+	col_name_len = strlen(col_name);
+
+	if (col_name_len > 0) {
+		memset(name, 0, strlen(col_name)); // To avoid copying newline
+		memcpy(name, col_name, strlen(col_name) - 1);
+	} else {
+		LOGE("col_name length is less than 1");
+		fclose(fp);
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
 
 	LOGI("The column name is %s", name);
 
@@ -322,12 +339,14 @@ int datacontrol_sql_get_column_item_size(resultset_cursor *cursor, int column_in
 	int i = 0;
 	int ret = 0;
 
+	char err_buf[ERR_LEN] = { 0, };
 	int fd = cursor->resultset_fd;
 
 	ret = lseek(fd, cursor->resultset_current_offset, SEEK_SET);
 	if (ret < 0)
 	{
-		LOGE("unable to seek in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to seek in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -336,21 +355,24 @@ int datacontrol_sql_get_column_item_size(resultset_cursor *cursor, int column_in
 		ret = read(fd, &type, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = read(fd, &size, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = lseek(fd, size, SEEK_CUR);
 		if (ret < 0)
 		{
-			LOGE("unable to seek in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to seek in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 	}
@@ -358,14 +380,16 @@ int datacontrol_sql_get_column_item_size(resultset_cursor *cursor, int column_in
 	ret = read(fd, &type, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
 	ret = read(fd, &size, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -379,13 +403,14 @@ int datacontrol_sql_get_column_item_type(resultset_cursor *cursor, int column_in
 	int i = 0;
 	int size = 0;
 	int ret = 0;
-
+	char err_buf[ERR_LEN] = { 0, };
 	int fd = cursor->resultset_fd;
 
 	ret = lseek(fd, cursor->resultset_current_offset, SEEK_SET);
 	if (ret < 0)
 	{
-		LOGE("unable to seek in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to seek in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -394,21 +419,24 @@ int datacontrol_sql_get_column_item_type(resultset_cursor *cursor, int column_in
 		ret = read(fd, &type, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = read(fd, &size, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = lseek(fd, size, SEEK_CUR);
 		if (ret < 0)
 		{
-			LOGE("unable to seek in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to seek in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 	}
@@ -416,7 +444,8 @@ int datacontrol_sql_get_column_item_type(resultset_cursor *cursor, int column_in
 	ret = read(fd, &type, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -457,13 +486,14 @@ int datacontrol_sql_get_blob_data(resultset_cursor *cursor, int column_index, vo
 	int size = 0;
 	int i = 0;
 	int ret = 0;
-
+	char err_buf[ERR_LEN] = { 0, };
 	int fd = cursor->resultset_fd;
 
 	ret = lseek(fd, cursor->resultset_current_offset, SEEK_SET);
 	if (ret < 0)
 	{
-		LOGE("unable to seek in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to seek in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -472,21 +502,24 @@ int datacontrol_sql_get_blob_data(resultset_cursor *cursor, int column_index, vo
 		ret = read(fd, &type, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = read(fd, &size, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = lseek(fd, size, SEEK_CUR);
 		if (ret < 0)
 		{
-			LOGE("unable to seek in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to seek in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 	}
@@ -494,7 +527,8 @@ int datacontrol_sql_get_blob_data(resultset_cursor *cursor, int column_index, vo
 	ret = read(fd, &type, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -511,26 +545,19 @@ int datacontrol_sql_get_blob_data(resultset_cursor *cursor, int column_index, vo
 		return DATACONTROL_ERROR_MAX_EXCEEDED; //overflow
 	}
 
-	if (size > 0)
+	if (size > 0 && size < INT_MAX)
 	{
-		char *data = (char*)malloc((size + 1) * (sizeof(char)));
-		if (data == NULL) {
-			LOGE("out of memory");
-			return DATACONTROL_ERROR_OUT_OF_MEMORY;
-		}
-
-		memset(data, 0, size + 1);
-
-		ret = read(fd, data, size);
-		if (ret < size)
-		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
-			free(data);
+		if (memset(buffer, 0, size + 1) == NULL) {
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
-		memcpy(buffer, data, size + 1);
-		free(data);
+		ret = read(fd, buffer, size);
+		if (ret < size) {
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
+			return DATACONTROL_ERROR_IO_ERROR;
+		}
+
 	}
 	return DATACONTROL_ERROR_NONE;
 }
@@ -557,13 +584,14 @@ int datacontrol_sql_get_int64_data(resultset_cursor *cursor, int column_index, l
 	int size = 0;
 	int i = 0;
 	int ret = 0;
-
+	char err_buf[ERR_LEN] = { 0, };
 	int fd = cursor->resultset_fd;
 
 	ret = lseek(fd, cursor->resultset_current_offset, SEEK_SET);
 	if (ret < 0)
 	{
-		LOGE("unable to seek in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to seek in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -572,21 +600,24 @@ int datacontrol_sql_get_int64_data(resultset_cursor *cursor, int column_index, l
 		ret = read(fd, &type, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = read(fd, &size, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = lseek(fd, size, SEEK_CUR);
 		if (ret < 0)
 		{
-			LOGE("unable to seek in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to seek in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 	}
@@ -594,7 +625,8 @@ int datacontrol_sql_get_int64_data(resultset_cursor *cursor, int column_index, l
 	ret = read(fd, &type, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -607,14 +639,16 @@ int datacontrol_sql_get_int64_data(resultset_cursor *cursor, int column_index, l
 	ret = read(fd, &size, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
 	ret = read(fd, data, size);
 	if (ret < size)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -627,13 +661,14 @@ int datacontrol_sql_get_double_data(resultset_cursor *cursor, int column_index, 
 	int size = 0;
 	int i = 0;
 	int ret = 0;
-
+	char err_buf[ERR_LEN] = { 0, };
 	int fd = cursor->resultset_fd;
 
 	ret = lseek(fd, cursor->resultset_current_offset, SEEK_SET);
 	if (ret < 0)
 	{
-		LOGE("unable to seek in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to seek in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -642,21 +677,24 @@ int datacontrol_sql_get_double_data(resultset_cursor *cursor, int column_index, 
 		ret = read(fd, &type, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = read(fd, &size, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = lseek(fd, size, SEEK_CUR);
 		if (ret < 0)
 		{
-			LOGE("unable to seek in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to seek in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 	}
@@ -664,7 +702,8 @@ int datacontrol_sql_get_double_data(resultset_cursor *cursor, int column_index, 
 	ret = read(fd, &type, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -677,14 +716,16 @@ int datacontrol_sql_get_double_data(resultset_cursor *cursor, int column_index, 
 	ret = read(fd, &size, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
 	ret = read(fd, data, size);
 	if (ret < size)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -698,13 +739,14 @@ int datacontrol_sql_get_text_data(resultset_cursor *cursor, int column_index, ch
 	int size = 0;
 	int i = 0;
 	int ret = 0;
-
+	char err_buf[ERR_LEN] = { 0, };
 	int fd = cursor->resultset_fd;
 
 	ret = lseek(fd, cursor->resultset_current_offset, SEEK_SET);
 	if (ret < 0)
 	{
-		LOGE("unable to seek in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to seek in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -713,21 +755,24 @@ int datacontrol_sql_get_text_data(resultset_cursor *cursor, int column_index, ch
 		ret = read(fd, &type, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = read(fd, &size, sizeof(int));
 		if (ret == 0)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 
 		ret = lseek(fd, size, SEEK_CUR);
 		if (ret < 0)
 		{
-			LOGE("unable to seek in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to seek in the resultset file: %s", err_buf);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}
 	}
@@ -735,7 +780,8 @@ int datacontrol_sql_get_text_data(resultset_cursor *cursor, int column_index, ch
 	ret = read(fd, &type, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
@@ -748,11 +794,12 @@ int datacontrol_sql_get_text_data(resultset_cursor *cursor, int column_index, ch
 	ret = read(fd, &size, sizeof(int));
 	if (ret == 0)
 	{
-		LOGE("unable to read in the resultset file: %s", strerror(errno));
+		strerror_r(errno, err_buf, sizeof(err_buf));
+		LOGE("unable to read in the resultset file: %s", err_buf);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
-	if (size > 0)
+	if (size > 0 && size < INT_MAX)
 	{
 		char *data = (char*)malloc((size + 1) * (sizeof(char)));
 		if(!data)
@@ -765,7 +812,8 @@ int datacontrol_sql_get_text_data(resultset_cursor *cursor, int column_index, ch
 		ret = read(fd, data, size);
 		if (ret < size)
 		{
-			LOGE("unable to read in the resultset file: %s", strerror(errno));
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("unable to read in the resultset file: %s", err_buf);
 			free(data);
 			return DATACONTROL_ERROR_IO_ERROR;
 		}

@@ -13,6 +13,7 @@
 #include <appsvc/appsvc.h>
 #include <aul/aul.h>
 #include <bundle.h>
+#include <bundle_internal.h>
 #include <pkgmgr-info.h>
 #include <security-server.h>
 
@@ -47,6 +48,8 @@
 #define PACKET_INDEX_MAP_VALUE_2ND	3
 #define PACKET_INDEX_MAP_PAGE_NO	2
 #define PACKET_INDEX_MAP_COUNT_PER_PAGE	3
+
+#define ERR_LEN 128
 
 static const int MAX_ARGUMENT_SIZE = 16384; // 16KB
 static GHashTable *request_table = NULL;
@@ -97,14 +100,34 @@ __get_client_pkgid(bundle *b)
 {
 	const char *caller_appid = NULL;
 	char *caller_pkgid = NULL;
+	char *pkgid_dup = NULL;
 	pkgmgrinfo_appinfo_h app_info_handle = NULL;
 
-	caller_appid = bundle_get_val(b, AUL_K_CALLER_APPID);
-	pkgmgrinfo_appinfo_get_appinfo(caller_appid, &app_info_handle);
-	pkgmgrinfo_appinfo_get_pkgname(app_info_handle, &caller_pkgid);
-	SECURE_LOGI("client pkg id : %s", caller_pkgid);
+	if (b == NULL) {
+		LOGE("Bundle passed is NULL");
+		return NULL;
+	}
 
-	return caller_pkgid ? strdup(caller_pkgid) : NULL;
+	caller_appid = bundle_get_val(b, AUL_K_CALLER_APPID);
+	if (caller_appid == NULL) {
+		LOGE("caller_appid is NULL");
+		return NULL;
+	}
+
+	if (pkgmgrinfo_appinfo_get_appinfo(caller_appid, &app_info_handle) != PMINFO_R_OK) {
+		SECURE_LOGE("unable to get appinfo of provider_appid: %s", caller_appid);
+	} else {
+		if (pkgmgrinfo_appinfo_get_pkgname(app_info_handle, &caller_pkgid) != PMINFO_R_OK) {
+			SECURE_LOGE("unable to get pkgname of provider_appid: %s", caller_appid);
+		} else {
+			SECURE_LOGI("provider pkg id : %s", caller_pkgid);
+			pkgid_dup = strdup(caller_pkgid);
+			if (pkgid_dup == NULL)
+				SECURE_LOGE("OOM error");
+		}
+		pkgmgrinfo_appinfo_destroy_appinfo(app_info_handle);
+	}
+	return pkgid_dup;
 }
 
 static bundle*
@@ -119,6 +142,7 @@ __get_data_map(const char *path, int column_count)
 	char *value = NULL;
 	int fd = 0;
 	int ret = 0;
+	char err_buf[ERR_LEN] = { 0, };
 
 	SECURE_LOGI("The request file of INSERT/UPDATE: %s", path);
 	ret = security_server_shared_file_reopen(path, &fd);
@@ -133,54 +157,69 @@ __get_data_map(const char *path, int column_count)
 		size = read(fd, &len, sizeof(int));
 		if ((unsigned int)size < sizeof(int) || len < 0 || len > MAX_ARGUMENT_SIZE)
 		{
-			SECURE_LOGE("key length:%d, read():%s, returned:%d", len, strerror(errno), size);
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("key length:%d, read():%s, returned:%d", len, err_buf, size);
 			break;
 		}
 
 		key = calloc(len + 1, sizeof(char));
 		if (key == NULL) {
-			SECURE_LOGE("out of memory");
+			LOGE("OOM error");
 			break;
 		}
-
-		size = read(fd, key, len);	// key
+		size = read(fd, key, len);  // key
+		key[len] = '\0';
 		if (size < 0)
 		{
-			SECURE_LOGE("key length:%d, read():%s, returned:%d", len, strerror(errno), size);
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("key length:%d, read():%s, returned:%d", len, err_buf, size);
 			free(key);
+			key = NULL;
 			break;
 		}
 
 		size = read(fd, &len, sizeof(int));
 		if ((unsigned int)size < sizeof(int) || len < 0 || len > MAX_ARGUMENT_SIZE)
 		{
-			SECURE_LOGE("value length:%d, read():%s, returned:%d", len, strerror(errno), size);
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("value length:%d, read():%s, returned:%d", len, err_buf, size);
 			free(key);
+			key = NULL;
 			break;
 		}
 
 		value = calloc(len + 1, sizeof(char));
 		if (value == NULL) {
-			SECURE_LOGE("out of memory");
+			LOGE("OOM error");
 			free(key);
+			key = NULL;
 			break;
 		}
 
 		size = read(fd, value, len); // value
 		if (size < 0)
 		{
-			SECURE_LOGE("value length:%d, read():%s, returned:%d", len, strerror(errno), size);
+			strerror_r(errno, err_buf, sizeof(err_buf));
+			LOGE("value length:%d, read():%s, returned:%d", len, err_buf, size);
 			free(key);
+			key = NULL;
 			free(value);
+			value = NULL;
 			break;
 		}
 
-		LOGI("key: %s, value: %s", key, value);
+		SECURE_LOGI("key: %s, value: %s", key, value);
 
 		bundle_add_str(b, key, value);
 
-		free(key);
-		free(value);
+		if (key != NULL) {
+			free(key);
+			key = NULL;
+		}
+		if (value != NULL) {
+			free(value);
+			value = NULL;
+		}
 	}
 
 	fsync(fd);
@@ -246,6 +285,11 @@ __set_select_result(bundle* b, const char* path, void* data)
 	}
 
 	client_pkgid = __get_client_pkgid(b);
+	if (client_pkgid == NULL) {
+		LOGE("could not get client package id");
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
+
 	ret = security_server_shared_file_open(path, client_pkgid, &fd);
 	if (ret == SECURITY_SERVER_API_ERROR_FILE_EXIST) {
 		SECURE_LOGE("The file(%s) already exist, delete and retry to open", path);
@@ -303,7 +347,7 @@ __set_select_result(bundle* b, const char* path, void* data)
 		if (column_name == NULL) {
 			LOGE("sqlite3_column_name is failed. errno = %d", errno);
 		} else {
-			column_name = strcat(column_name, "\n");
+			column_name = strncat(column_name, "\n", 1);
 			if (write(fd, column_name, strlen(column_name)) == -1)
 			{
 				LOGE("Writing a column_name to a file descriptor is failed. errno = %d", errno);
@@ -424,8 +468,6 @@ __set_select_result(bundle* b, const char* path, void* data)
 		LOGE("Writing a row_count to a file descriptor is failed. errno = %d", errno);
 	}
 	close(fd);
-
-
 	return DATACONTROL_ERROR_NONE;
 }
 
@@ -466,6 +508,11 @@ __set_get_value_result(bundle *b, const char* path, char **value_list)
 	}
 
 	client_pkgid = __get_client_pkgid(b);
+	if (client_pkgid == NULL) {
+		LOGE("could not get client package id");
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
+
 	ret = security_server_shared_file_open(path, client_pkgid, &fd);
 	if (ret == SECURITY_SERVER_API_ERROR_FILE_EXIST) {
 		SECURE_LOGE("The file(%s) already exist, delete and retry to open", path);
@@ -488,6 +535,12 @@ __set_get_value_result(bundle *b, const char* path, char **value_list)
 	for (i = 0; i < add_value_count; ++i)
 	{
 		int length = strlen(value_list[current_offset + i]);
+		if (length >= INT_MAX) {
+			LOGE("Integer overflow. value_list[%d]", current_offset + i);
+			fsync(fd);
+			close(fd);
+			return DATACONTROL_ERROR_MAX_EXCEEDED;
+		}
 		if (write(fd, &length, sizeof(int)) == -1)
 		{
 			LOGE("Writing a length to a file descriptor is failed. errno = %d", errno);
@@ -515,7 +568,10 @@ __get_result_file_path(bundle *b)
 	}
 
 	const char *caller_req_id = bundle_get_val(b, OSP_K_REQUEST_ID);
-
+	if (caller_req_id == NULL) {
+		LOGE("caller req_id is NULL.");
+		return NULL;
+	}
 	char *result_path = calloc(RESULT_PATH_MAX, sizeof(char));
 
 	if (!result_path)
@@ -578,7 +634,7 @@ __set_result(bundle* b, datacontrol_request_type type, void* data)
 				if (ret < 0)
 				{
 					memset(path, 0, RESULT_PATH_MAX);
-					strcpy(path, "NoResultSet");
+					strncpy(path, "NoResultSet", RESULT_PATH_MAX);
 					LOGI("Empty ResultSet");
 				}
 				list[PACKET_INDEX_SELECT_RESULT_FILE] = path;
@@ -631,19 +687,18 @@ __set_result(bundle* b, datacontrol_request_type type, void* data)
 
 			list[PACKET_INDEX_REQUEST_RESULT] = "1";		// request result
 			list[PACKET_INDEX_ERROR_MSG] = DATACONTROL_EMPTY;
+			list[PACKET_INDEX_VALUE_COUNT] = "0";	// value count
+			list[PACKET_INDEX_GET_RESULT_FILE] = DATACONTROL_EMPTY;
 
 			char *path = __get_result_file_path(b);
 			if (path != NULL)
 			{
 				char **value_list = (char **)data;
-				__set_get_value_result(b, path, value_list);
-				list[PACKET_INDEX_VALUE_COUNT] = bundle_get_val(b, RESULT_VALUE_COUNT);	// value count
-				list[PACKET_INDEX_GET_RESULT_FILE] = path;
-			}
-			else
-			{
-				list[PACKET_INDEX_VALUE_COUNT] = 0;	// value count
-				list[PACKET_INDEX_GET_RESULT_FILE] = DATACONTROL_EMPTY;
+				if (__set_get_value_result(b, path, value_list) == DATACONTROL_ERROR_NONE)
+				{
+					list[PACKET_INDEX_VALUE_COUNT] = bundle_get_val(b, RESULT_VALUE_COUNT);	// value count
+					list[PACKET_INDEX_GET_RESULT_FILE] = path;
+				}
 			}
 
 			bundle_add_str_array(res, OSP_K_ARG, list, 4);
@@ -652,7 +707,6 @@ __set_result(bundle* b, datacontrol_request_type type, void* data)
 			{
 				free(path);
 			}
-
 			break;
 		}
 		case DATACONTROL_TYPE_UNDEFINED:	// DATACONTROL_TYPE_MAP_SET || ADD || REMOVE
@@ -762,19 +816,20 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 	}
 
 	int len = 0;
+	int ret = DATACONTROL_ERROR_NONE;
 	const char **arg_list = bundle_get_str_array(b, OSP_K_ARG, &len);
 
-	datacontrol_h provider = malloc(sizeof(struct datacontrol_s));
+	datacontrol_h provider = calloc(1, sizeof(struct datacontrol_s));
 	if (provider == NULL) {
 		LOGE("Fail to alloc provider");
 		return DATACONTROL_ERROR_OUT_OF_MEMORY;
 	}
 
 	// Set the provider ID
-	provider->provider_id = (char*)bundle_get_val(b, OSP_K_DATACONTROL_PROVIDER);
+	provider->provider_id = strdup((char*)bundle_get_val(b, OSP_K_DATACONTROL_PROVIDER));
 
 	// Set the data ID
-	provider->data_id = (char*)arg_list[PACKET_INDEX_DATAID];
+	provider->data_id = strdup((char*)arg_list[PACKET_INDEX_DATAID]);
 
 	// Set the request ID
 	int provider_req_id = __provider_new_request_id();
@@ -784,9 +839,9 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 	// Add the data to the table
 	int *key = malloc(sizeof(int));
 	if (key == NULL) {
-		free(provider);
-		LOGE("Fail to alloc key");
-		return DATACONTROL_ERROR_OUT_OF_MEMORY;
+		LOGE("OOM error");
+		ret = DATACONTROL_ERROR_OUT_OF_MEMORY;
+		goto EXCEPTION;
 	}
 	*key = provider_req_id;
 
@@ -801,7 +856,7 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				int current = 0;
 				int column_count = atoi(arg_list[i++]); // Column count
 
-				LOGI("SELECT column count: %d", column_count);
+				SECURE_LOGI("SELECT column count: %d", column_count);
 
 				const char** column_list = (const char**)malloc(column_count * (sizeof(char *)));
 				if (column_list == NULL) {
@@ -813,14 +868,13 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				while (current < column_count)
 				{
 					column_list[current++] = arg_list[i++];  // Column data
-
-					LOGI("Column %d: %s", current, column_list[current-1]);
+					SECURE_LOGI("Column %d: %s", current, column_list[current-1]);
 				}
 
 				const char *where = arg_list[i++];  // where
 				const char *order = arg_list[i++];  // order
 
-				LOGI("where: %s, order: %s", where, order);
+				SECURE_LOGI("where: %s, order: %s", where, order);
 
 				if (strncmp(where, DATACONTROL_EMPTY, strlen(DATACONTROL_EMPTY)) == 0)
 				{
@@ -839,7 +893,6 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				bundle_add_str(value, MAX_COUNT_PER_PAGE, per_page);
 
 				provider_sql_cb->select(provider_req_id, provider, column_list, column_count, where, order, provider_sql_user_data);
-
 				free(column_list);
 
 				break;
@@ -863,7 +916,7 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				else
 				{
 					const char *where = arg_list[PACKET_INDEX_UPDATEWHERE];
-					LOGI("UPDATE from where: %s", where);
+					SECURE_LOGI("UPDATE from where: %s", where);
 
 					if (strncmp(where, DATACONTROL_EMPTY, strlen(DATACONTROL_EMPTY)) == 0)
 					{
@@ -879,7 +932,7 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 			{
 				const char *where = arg_list[PACKET_INDEX_DELETEWHERE];
 
-				LOGI("DELETE from where: %s", where);
+				SECURE_LOGI("DELETE from where: %s", where);
 				if (strncmp(where, DATACONTROL_EMPTY, strlen(DATACONTROL_EMPTY)) == 0)
 				{
 					where = NULL;
@@ -895,7 +948,7 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				bundle_add_str(value, RESULT_PAGE_NUMBER, page_number);
 				bundle_add_str(value, MAX_COUNT_PER_PAGE, count_per_page);
 
-				LOGI("Gets the value list related with the key(%s) from Map datacontrol. ", map_key);
+				SECURE_LOGI("Gets the value list related with the key(%s) from Map datacontrol. ", map_key);
 
 				provider_map_cb->get(provider_req_id, provider, map_key, provider_map_user_data);
 				break;
@@ -906,7 +959,7 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				const char *old_value = arg_list[PACKET_INDEX_MAP_VALUE_1ST];
 				const char *new_value = arg_list[PACKET_INDEX_MAP_VALUE_2ND];
 
-				LOGI("Sets the old value(%s) of the key(%s) to the new value(%s) in Map datacontrol.", old_value, map_key, new_value);
+				SECURE_LOGI("Sets the old value(%s) of the key(%s) to the new value(%s) in Map datacontrol.", old_value, map_key, new_value);
 
 				provider_map_cb->set(provider_req_id, provider, map_key, old_value, new_value, provider_map_user_data);
 				break;
@@ -916,7 +969,7 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				const char *map_key = arg_list[PACKET_INDEX_MAP_KEY];
 				const char *map_value = arg_list[PACKET_INDEX_MAP_VALUE_1ST];
 
-				LOGI("Adds the %s-%s in Map datacontrol.", map_key, map_value);
+				SECURE_LOGI("Adds the %s-%s in Map datacontrol.", map_key, map_value);
 
 				provider_map_cb->add(provider_req_id, provider, map_key, map_value, provider_map_user_data);
 				break;
@@ -926,7 +979,7 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				const char *map_key = arg_list[PACKET_INDEX_MAP_KEY];
 				const char *map_value = arg_list[PACKET_INDEX_MAP_VALUE_1ST];
 
-				LOGI("Removes the %s-%s in Map datacontrol.", map_key, map_value);
+				SECURE_LOGI("Removes the %s-%s in Map datacontrol.", map_key, map_value);
 
 				provider_map_cb->remove(provider_req_id, provider, map_key, map_value, provider_map_user_data);
 				break;
@@ -935,9 +988,17 @@ __datacontrol_handler_cb(bundle *b, int request_id, void* data)
 				break;
 	}
 
-	free(provider);
+EXCEPTION:
+	if(provider && provider->provider_id)
+		free(provider->provider_id);
 
-	return DATACONTROL_ERROR_NONE;
+	if(provider && provider->data_id)
+		free(provider->data_id);
+
+	if(provider)
+		free(provider);
+
+	return ret;
 }
 
 int

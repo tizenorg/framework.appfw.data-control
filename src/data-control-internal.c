@@ -23,6 +23,7 @@ _datacontrol_sql_get_cursor(const char *path)
 
 	return 0;
 }
+
 int
 _datacontrol_create_request_id(void)
 {

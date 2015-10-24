@@ -185,10 +185,6 @@ datacontrol_map_get_value_list(const char *path, int count)
 		}
 
 		value_list[i] = (char *) calloc(length + 1, sizeof(char));
-		if (value_list[i] == NULL) {
-			SECURE_LOGE("out of memory");
-			goto ERROR;
-		}
 
 		size = read(fd, value_list[i], length);
 		if (size <= 0)
@@ -480,7 +476,8 @@ datacontrol_map_request_provider(datacontrol_h provider, datacontrol_request_typ
 	pid = -1;
 	int count = 0;
 	const int TRY_COUNT = 4;
-	const int TRY_SLEEP_TIME = 65000;
+	const struct timespec TRY_SLEEP_TIME = { 0, 1000 * 1000 * 1000 };
+
 	do
 	{
 		pid = appsvc_run_service(arg_list, request_id, app_svc_res_cb_map, data);
@@ -497,7 +494,7 @@ datacontrol_map_request_provider(datacontrol_h provider, datacontrol_request_typ
 
 		count++;
 
-		usleep(TRY_SLEEP_TIME);
+		nanosleep(&TRY_SLEEP_TIME, 0);
 	}
 	while (count < TRY_COUNT);
 
@@ -776,7 +773,7 @@ datacontrol_map_get_with_page(datacontrol_h provider, const char *key, int *requ
 	char* access = NULL;
 	char *provider_appid = NULL;
 
-	if (provider == NULL || provider->provider_id == NULL || provider->data_id == NULL || key == NULL)
+	if (provider == NULL || provider->provider_id == NULL || provider->data_id == NULL || key == NULL || page_number <= 0 || count_per_page <= 0)
 	{
 		LOGE("Invalid parameter");
 		return DATACONTROL_ERROR_INVALID_PARAMETER;

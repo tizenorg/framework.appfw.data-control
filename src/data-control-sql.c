@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <glib.h>
 #include <pthread.h>
+#include <limits.h>
 
 #include <appsvc/appsvc.h>
 #include <aul/aul.h>
@@ -436,7 +437,8 @@ datacontrol_sql_request_provider(datacontrol_h provider, datacontrol_request_typ
 	pid = -1;
 	int count = 0;
 	const int TRY_COUNT = 4;
-	const int TRY_SLEEP_TIME = 65000;
+	const struct timespec TRY_SLEEP_TIME = { 0, 1000 * 1000 * 1000 };
+
 	do
 	{
 		pid = appsvc_run_service(arg_list, request_id, app_svc_res_cb_sql, data);
@@ -453,7 +455,7 @@ datacontrol_sql_request_provider(datacontrol_h provider, datacontrol_request_typ
 
 		count++;
 
-		usleep(TRY_SLEEP_TIME);
+		nanosleep(&TRY_SLEEP_TIME, 0);
 	}
 	while (count < TRY_COUNT);
 
@@ -772,6 +774,7 @@ char *
 __get_provider_pkgid(char* provider_id)
 {
 	char* access = NULL;
+	char *pkgid_dup = NULL;
 	char *provider_appid = NULL;
 	char *provider_pkgid = NULL;
 	pkgmgrinfo_appinfo_h app_info_handle = NULL;
@@ -782,20 +785,31 @@ __get_provider_pkgid(char* provider_id)
 		LOGE("unable to get sql data control information: %d", ret);
 		return NULL;
 	}
+	if (provider_appid == NULL) {
+		LOGE("provider_appid is NULL");
+		if (access)
+			free(access);
+		return NULL;
+	}
 
-	pkgmgrinfo_appinfo_get_appinfo(provider_appid, &app_info_handle);
-	pkgmgrinfo_appinfo_get_pkgname(app_info_handle, &provider_pkgid);
-	SECURE_LOGI("provider pkg id : %s", provider_pkgid);
+	if (pkgmgrinfo_appinfo_get_appinfo(provider_appid, &app_info_handle) != PMINFO_R_OK) {
+		SECURE_LOGE("unable to get appinfo of provider_appid: %s", provider_appid);
+	} else {
+		if (pkgmgrinfo_appinfo_get_pkgname(app_info_handle, &provider_pkgid) != PMINFO_R_OK) {
+			SECURE_LOGE("unable to get pkgname of provider_appid: %s", provider_appid);
+		} else {
+			SECURE_LOGI("provider pkg id : %s", provider_pkgid);
+			pkgid_dup = strdup(provider_pkgid);
+			if (pkgid_dup == NULL)
+				SECURE_LOGE("OOM error");
+		}
+		pkgmgrinfo_appinfo_destroy_appinfo(app_info_handle);
+	}
 
 	if (access)
-	{
 		free(access);
-	}
-	if (provider_appid)
-	{
-		free(provider_appid);
-	}
-	return provider_pkgid ? strdup(provider_pkgid) : NULL;
+	free(provider_appid);
+	return pkgid_dup;
 }
 
 int
@@ -863,6 +877,10 @@ datacontrol_sql_insert(datacontrol_h provider, const bundle* insert_data, int *r
 
 	int fd = 0;
 	char *provider_pkgid = __get_provider_pkgid(provider->provider_id);
+	if (provider_pkgid == NULL) {
+		LOGE("Unable to get the provider pkgid");
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
 
 	ret = security_server_shared_file_open(insert_map_file, provider_pkgid, &fd);
 	if (ret == SECURITY_SERVER_API_ERROR_FILE_EXIST) {
@@ -885,7 +903,7 @@ datacontrol_sql_insert(datacontrol_h provider, const bundle* insert_data, int *r
 	free(provider_pkgid);
 
 	int count = bundle_get_count((bundle*)insert_data);
-	LOGI("Insert column counts: %d", count);
+	SECURE_LOGI("Insert column counts: %d", count);
 
 	bundle_foreach((bundle*)insert_data, bundle_foreach_cb, &fd);
 
@@ -1010,11 +1028,30 @@ datacontrol_sql_select_with_page(datacontrol_h provider, char **column_list, int
 	char* access = NULL;
 	char *provider_appid = NULL;
 
-	if (provider == NULL || provider->provider_id == NULL || provider->data_id == NULL)
+	if (provider == NULL || provider->provider_id == NULL || provider->data_id == NULL || page_number <= 0 || count_per_page <= 0)
 	{
 		LOGE("Invalid parameter");
 		return DATACONTROL_ERROR_INVALID_PARAMETER;
 	}
+
+	SECURE_LOGI("SQL data control, select to provider_id: %s, data_id: %s, col_count: %d, where: %s, order: %s, page_number: %d, per_page: %d", provider->provider_id, provider->data_id, column_count, where, order, page_number, count_per_page);
+
+	ret = pkgmgrinfo_appinfo_get_datacontrol_info(provider->provider_id, "Sql", &provider_appid, &access);
+	if (ret != PMINFO_R_OK)
+	{
+		LOGE("unable to get sql data control information: %d", ret);
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
+	if (provider_appid)
+		free(provider_appid);
+
+	if (NULL != access && !strcmp(access, WRITE_ONLY)) {
+		LOGE("Provider has given [%s] permission only", access);
+		free(access);
+		return DATACONTROL_ERROR_PERMISSION_DENIED;
+	}
+	if (access)
+		free(access);
 
 	if (count_per_page > MAX_ROW_COUNT)
 	{
@@ -1079,37 +1116,34 @@ datacontrol_sql_select_with_page(datacontrol_h provider, char **column_list, int
 
 	total_arg_count = column_count + DATACONTROL_SELECT_EXTRA_COUNT;
 	const char** arg_list = (const char**)malloc(total_arg_count * (sizeof(char *)));
-	if (arg_list == NULL) {
-		LOGE("out of memory");
+	if(arg_list == NULL) {
+		LOGE("OOM error");
 		bundle_free(b);
 		return DATACONTROL_ERROR_OUT_OF_MEMORY;
 	}
 
-	LOGI("total arg count %d", total_arg_count);
+	SECURE_LOGI("total arg count %d", total_arg_count);
 
 	arg_list[0] = provider->data_id; // arg[0]: data ID
 	int i = 1;
-	if (column_list)
+
+	char select_column_count[MAX_LEN_DATACONTROL_COLUMN_COUNT] = {0, };
+	ret = snprintf(select_column_count, MAX_LEN_DATACONTROL_COLUMN_COUNT, "%d", column_count);
+	if(ret < 0)
 	{
-		char select_column_count[MAX_LEN_DATACONTROL_COLUMN_COUNT] = {0, };
-		ret = snprintf(select_column_count, MAX_LEN_DATACONTROL_COLUMN_COUNT, "%d", column_count);
-		if(ret < 0)
-		{
-			LOGE("unable to convert select col count to string: %d", errno);
-			free(arg_list);
-			bundle_free(b);
-			return DATACONTROL_ERROR_IO_ERROR;
-		}
+		LOGE("unable to convert select col count to string: %d", errno);
+		free(arg_list);
+		bundle_free(b);
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
 
+	arg_list[i] = select_column_count; // arg[1]: selected column count
 
-		arg_list[i] = select_column_count; // arg[1]: selected column count
-
-		++i;
-		int select_col = 0;
-		while (select_col < column_count)
-		{
-			arg_list[i++] = column_list[select_col++];
-		}
+	++i;
+	int select_col = 0;
+	while (select_col < column_count)
+	{
+		arg_list[i++] = column_list[select_col++];
 	}
 
 	if (where)	// arg: where clause
@@ -1210,6 +1244,10 @@ datacontrol_sql_update(datacontrol_h provider, const bundle* update_data, const 
 
 	int fd = 0;
 	char *provider_pkgid = __get_provider_pkgid(provider->provider_id);
+	if (provider_pkgid == NULL) {
+		LOGE("Unable to get the provider pkgid");
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
 
 	ret = security_server_shared_file_open(update_map_file, provider_pkgid, &fd);
 	if (ret == SECURITY_SERVER_API_ERROR_FILE_EXIST) {

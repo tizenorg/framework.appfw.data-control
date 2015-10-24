@@ -121,19 +121,19 @@ typedef struct
  *
  *		result = datacontrol_map_create(&provider);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Creating data control provider is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Creating data control provider is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_map_set_provider_id(provider, provider_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Setting providerID is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Setting providerID is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_map_set_data_id(provider, data_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Setting dataID is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Setting dataID is failed with error: %d", result);
  *			return result;
  *		}
  *
@@ -141,7 +141,7 @@ typedef struct
  *
  *		result = datacontrol_map_destroy(provider);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Destorying data control provider is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Destorying data control provider is failed with error: %d", result);
  *		}
  *
  *		return result;
@@ -252,10 +252,10 @@ EXPORT_API int datacontrol_map_unregister_response_cb(datacontrol_h provider);
  *			char **result_value_list, int result_value_count, bool provider_result, const char *error)
  *	{
  *		if (provider_result) {
- *			LOGI("The get operation is successful");
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The get operation is successful");
  *		}
  *		else {
- *			LOGI("The get operation for the request %d is failed. error message: %s", request_id, error);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The get operation for the request %d is failed. error message: %s", request_id, error);
  *		}
  *	}
  *
@@ -270,16 +270,16 @@ EXPORT_API int datacontrol_map_unregister_response_cb(datacontrol_h provider);
  *		map_callback.get = map_get_response_cb;
  *		result = datacontrol_map_register_response_cb(provider, &map_callback);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Registering the callback function is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Registering the callback function is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_map_get(provider, key, &req_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Getting the value list of the key(%s) is failed with error: %d", key, result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Getting the value list of the key(%s) is failed with error: %d", key, result);
  *		}
  *		else {
- *			LOGI("req_id is %d", req_id);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "req_id is %d", req_id);
  *		}
  *
  *		return result;
@@ -329,10 +329,10 @@ EXPORT_API int datacontrol_map_get_with_page(datacontrol_h provider, const char 
  *	void map_set_response_cb(int request_id, datacontrol_h provider, bool provider_result, const char *error)
  *	{
  *		if (provider_result) {
- *			LOGI("The set operation is successful");
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The set operation is successful");
  *		}
  *		else {
- *			LOGI("The set operation for the request %d is failed. error message: %s", request_id, error);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The set operation for the request %d is failed. error message: %s", request_id, error);
  *		}
  *	}
  *
@@ -349,16 +349,16 @@ EXPORT_API int datacontrol_map_get_with_page(datacontrol_h provider, const char 
  *		map_callback.set = map_set_response_cb;
  *		result = datacontrol_map_register_response_cb(provider, &map_callback);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Registering the callback function is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Registering the callback function is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_map_set(provider, key, old_value, new_value, &req_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Replacing old_value(%s) with new_value(%s) is failed with error: %d", old_value, new_value, result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Replacing old_value(%s) with new_value(%s) is failed with error: %d", old_value, new_value, result);
  *		}
  *		else {
- *			LOGI("req_id is %d", req_id);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "req_id is %d", req_id);
  *		}
  *
  *		return result;
@@ -388,10 +388,10 @@ EXPORT_API int datacontrol_map_set(datacontrol_h provider, const char *key, cons
  *
  *	void map_add_response_cb(int request_id, datacontrol_h provider, bool provider_result, const char *error) {
  *		if (provider_result) {
- *			LOGI("The add operation is successful");
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The add operation is successful");
  *		}
  *		else {
- *			LOGI("The add operation for the request %d is failed. error message: %s", request_id, error);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The add operation for the request %d is failed. error message: %s", request_id, error);
  *		}
  *	}
  *
@@ -407,16 +407,16 @@ EXPORT_API int datacontrol_map_set(datacontrol_h provider, const char *key, cons
  *		map_callback.add = map_add_response_cb;
  *		result = datacontrol_map_register_response_cb(provider, &map_callback);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Registering the callback function is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Registering the callback function is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_map_add(provider, key, value, &req_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Adding %s-%s pair is failed with error: %d", key, value, result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Adding %s-%s pair is failed with error: %d", key, value, result);
  *		}
  *		else {
- *			LOGI("req_id is %d", req_id);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "req_id is %d", req_id);
  *		}
  *
  *		return result;
@@ -446,10 +446,10 @@ EXPORT_API int datacontrol_map_add(datacontrol_h provider, const char *key, cons
  *
  *	void map_remove_response_cb(int request_id, datacontrol_h provider, bool provider_result, const char *error) {
  *		if (provider_result) {
- *			LOGI("The remove operation is successful");
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The remove operation is successful");
  *		}
  *		else {
- *			LOGI("The remove operation for the request %d is failed. error message: %s", request_id, error);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "The remove operation for the request %d is failed. error message: %s", request_id, error);
  *		}
  *	}
  *
@@ -467,16 +467,16 @@ EXPORT_API int datacontrol_map_add(datacontrol_h provider, const char *key, cons
  *		map_callback.remove = map_remove_response_cb;
  *		result = datacontrol_map_register_response_cb(provider, &map_callback);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Registering the callback function is failed with error: %d", result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Registering the callback function is failed with error: %d", result);
  *			return result;
  *		}
  *
  *		result = datacontrol_map_remove(provider, key, value, &req_id);
  *		if (result != DATACONTROL_ERROR_NONE) {
- *			LOGE("Removing %s-%s pair is failed with error: %d", key, value, result);
+ *			dlog_print(DLOG_ERROR, LOG_TAG, "Removing %s-%s pair is failed with error: %d", key, value, result);
  *		}
  *		else {
- *			LOGI("req_id is %d", req_id);
+ *			dlog_print(DLOG_INFO, LOG_TAG, "req_id is %d", req_id);
  *		}
  *
  *		return result;
