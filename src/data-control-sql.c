@@ -818,43 +818,31 @@ datacontrol_sql_insert(datacontrol_h provider, const bundle* insert_data, int *r
 	int ret = 0;
 	char* access = NULL;
 	char *provider_appid = NULL;
+	char *provider_pkgid = NULL;
+	int fd = 0;
+	char caller_app_id[256] = {0, };
+	pid_t pid = getpid();
+	int count = 0;
+	long long arg_size = 0;
+	int req_id = _datacontrol_create_request_id();
+	bundle *b = NULL;
+	char insert_map_file[REQUEST_PATH_MAX] = {0, };
+	char insert_column_count[MAX_LEN_DATACONTROL_COLUMN_COUNT] = {0, };
+	const char* arg_list[3];
 
 	if (provider == NULL || provider->provider_id == NULL || provider->data_id == NULL || insert_data == NULL)
 	{
 		LOGE("Invalid parameter");
 		return DATACONTROL_ERROR_INVALID_PARAMETER;
 	}
-
 	SECURE_LOGI("SQL data control, insert to provider_id: %s, data_id: %s", provider->provider_id, provider->data_id);
-
-	ret = pkgmgrinfo_appinfo_get_datacontrol_info(provider->provider_id, "Sql", &provider_appid, &access);
-	if (ret != PMINFO_R_OK)
-	{
-		LOGE("unable to get sql data control information: %d", ret);
-		return DATACONTROL_ERROR_IO_ERROR;
-	}
-	if (provider_appid)
-		free(provider_appid);
-
-	if (NULL != access && !strcmp(access, READ_ONLY)) {
-		LOGE("Provider has given [%s] permission only", access);
-		free(access);
-		return DATACONTROL_ERROR_PERMISSION_DENIED;
-	}
-	if (access)
-		free(access);
-
-	char caller_app_id[256] = {0, };
-	pid_t pid = getpid();
-
 	if (aul_app_get_appid_bypid(pid, caller_app_id, sizeof(caller_app_id)) != 0)
 	{
 		SECURE_LOGE("Failed to get appid by pid(%d).", pid);
 		return DATACONTROL_ERROR_INVALID_PARAMETER;
 	}
 
-	// Check size of arguments
-	long long arg_size = 0;
+	/*  Check size of arguments */
 	bundle_foreach((bundle*)insert_data, bundle_foreach_check_arg_size_cb, &arg_size);
 	arg_size += strlen(provider->data_id) * sizeof(wchar_t);
 	if (arg_size > MAX_REQUEST_ARGUMENT_SIZE)
@@ -863,64 +851,69 @@ datacontrol_sql_insert(datacontrol_h provider, const bundle* insert_data, int *r
 		return DATACONTROL_ERROR_MAX_EXCEEDED;
 	}
 
-	int reqId = _datacontrol_create_request_id();
-	SECURE_LOGI("request id: %d", reqId);
-	char insert_map_file[REQUEST_PATH_MAX] = {0, };
-	ret = snprintf(insert_map_file, REQUEST_PATH_MAX, "%s%s%d", DATACONTROL_REQUEST_FILE_PREFIX, caller_app_id, reqId);
+	/*  get appid, access */
+	ret = pkgmgrinfo_appinfo_get_datacontrol_info(provider->provider_id, "Sql", &provider_appid, &access);
+	if (ret != PMINFO_R_OK)
+	{
+		LOGE("unable to get sql data control information: %d", ret);
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
+	if (NULL != access && !strcmp(access, READ_ONLY)) {
+		LOGE("Provider has given [%s] permission only", access);
+		free(provider_appid);
+		free(access);
+		return DATACONTROL_ERROR_PERMISSION_DENIED;
+	}
+	if (access)
+		free(access);
+
+	/*  get pkgid */
+	provider_pkgid = __get_provider_pkgid(provider->provider_id);
+	if (provider_pkgid == NULL) {
+		LOGE("Unable to get the provider pkgid");
+		free(provider_appid);
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
+
+	req_id = _datacontrol_create_request_id();
+	SECURE_LOGI("request id: %d", req_id);
+	ret = snprintf(insert_map_file, REQUEST_PATH_MAX, "%s%s%d", DATACONTROL_REQUEST_FILE_PREFIX, caller_app_id, req_id);
 	if (ret < 0)
 	{
 		LOGE("unable to write formatted output to insert_map_file: %d", errno);
+		free(provider_pkgid);
+		free(provider_appid);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
-
 	SECURE_LOGI("insert_map_file : %s", insert_map_file);
 
-	int fd = 0;
-	char *provider_pkgid = __get_provider_pkgid(provider->provider_id);
-	if (provider_pkgid == NULL) {
-		LOGE("Unable to get the provider pkgid");
-		return DATACONTROL_ERROR_IO_ERROR;
-	}
-
-	ret = security_server_shared_file_open(insert_map_file, provider_pkgid, &fd);
-	if (ret == SECURITY_SERVER_API_ERROR_FILE_EXIST) {
-		SECURE_LOGE("The file(%s) already exist, delete and retry to open", insert_map_file);
-		int ret_temp = security_server_shared_file_delete(insert_map_file);
-		if (ret_temp != SECURITY_SERVER_API_SUCCESS) {
-			SECURE_LOGE("Delete the file(%s) is failed : %d", insert_map_file, ret_temp);
-		} else {
-			ret = security_server_shared_file_open(insert_map_file, provider_pkgid, &fd);
-		}
-	}
-
+	ret = _shared_file_open(insert_map_file, provider_pkgid, provider_appid, &fd);
 	if (ret != SECURITY_SERVER_API_SUCCESS)
 	{
 		SECURE_LOGE("unable to open insert_map_file: %d", ret);
 		free(provider_pkgid);
+		free(provider_appid);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
-
 	free(provider_pkgid);
+	free(provider_appid);
 
-	int count = bundle_get_count((bundle*)insert_data);
+	/*  Check size of arguments */
+	count = bundle_get_count((bundle*)insert_data);
 	SECURE_LOGI("Insert column counts: %d", count);
-
 	bundle_foreach((bundle*)insert_data, bundle_foreach_cb, &fd);
 
 	fsync(fd);
 	close(fd);
 
-	bundle *b = bundle_create();
+	b = bundle_create();
 	if (!b)
 	{
 		LOGE("unable to create bundle: %d", errno);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
-
 	bundle_add_str(b, OSP_K_DATACONTROL_PROVIDER, provider->provider_id);
 	bundle_add_str(b, OSP_K_DATACONTROL_DATA, provider->data_id);
-
-	char insert_column_count[MAX_LEN_DATACONTROL_COLUMN_COUNT] = {0, };
 	ret = snprintf(insert_column_count, MAX_LEN_DATACONTROL_COLUMN_COUNT, "%d", count);
 	if (ret < 0)
 	{
@@ -928,18 +921,14 @@ datacontrol_sql_insert(datacontrol_h provider, const bundle* insert_data, int *r
 		bundle_free(b);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
-
-	const char* arg_list[3];
 	arg_list[0] = provider->data_id;
 	arg_list[1] = insert_column_count;
 	arg_list[2] = insert_map_file;
-
 	bundle_add_str_array(b, OSP_K_ARG, arg_list, 3);
 
-	// Set the request id
-	*request_id = reqId;
-
-	ret = datacontrol_sql_request_provider(provider, DATACONTROL_TYPE_SQL_INSERT, b, reqId);
+	/*  Set the request id */
+	*request_id = req_id;
+	ret = datacontrol_sql_request_provider(provider, DATACONTROL_TYPE_SQL_INSERT, b, req_id);
 	if (ret != DATACONTROL_ERROR_NONE)
 	{
 		ret = security_server_shared_file_delete(insert_map_file);
@@ -951,6 +940,7 @@ datacontrol_sql_insert(datacontrol_h provider, const bundle* insert_data, int *r
 	bundle_free(b);
 	return ret;
 }
+
 
 int
 datacontrol_sql_delete(datacontrol_h provider, const char *where, int *request_id)
@@ -1180,48 +1170,37 @@ datacontrol_sql_select_with_page(datacontrol_h provider, char **column_list, int
 	return ret;
 }
 
-
 int
 datacontrol_sql_update(datacontrol_h provider, const bundle* update_data, const char *where, int *request_id)
 {
 	int ret = 0;
 	char* access = NULL;
 	char *provider_appid = NULL;
+	char *provider_pkgid = NULL;
+	int fd = 0;
+	char caller_app_id[256] = {0, };
+	pid_t pid = getpid();
+	int count = 0;
+	long long arg_size = 0;
+	int req_id = _datacontrol_create_request_id();
+	bundle *b = NULL;
+	char update_map_file[REQUEST_PATH_MAX] = {0, };
+	char update_column_count[MAX_LEN_DATACONTROL_COLUMN_COUNT] = {0, };
+	const char* arg_list[4];
 
-	if (provider == NULL || provider->provider_id == NULL || provider->data_id == NULL || update_data == NULL || where == NULL)
+	if (provider == NULL || provider->provider_id == NULL || provider->data_id == NULL || update_data == NULL)
 	{
 		LOGE("Invalid parameter");
 		return DATACONTROL_ERROR_INVALID_PARAMETER;
 	}
-
-	ret = pkgmgrinfo_appinfo_get_datacontrol_info(provider->provider_id, "Sql", &provider_appid, &access);
-	if (ret != PMINFO_R_OK)
-	{
-		LOGE("unable to get sql data control information: %d", ret);
-		return DATACONTROL_ERROR_IO_ERROR;
-	}
-	if (provider_appid)
-		free(provider_appid);
-
-	if (NULL != access && !strcmp(access, READ_ONLY)) {
-		LOGE("Provider has given [%s] permission only", access);
-		free(access);
-		return DATACONTROL_ERROR_PERMISSION_DENIED;
-	}
-	if (access)
-		free(access);
-
-	char caller_app_id[256] = {0, };
-	pid_t pid = getpid();
-
+	SECURE_LOGI("SQL data control, update to provider_id: %s, data_id: %s", provider->provider_id, provider->data_id);
 	if (aul_app_get_appid_bypid(pid, caller_app_id, sizeof(caller_app_id)) != 0)
 	{
 		SECURE_LOGE("Failed to get appid by pid(%d).", pid);
 		return DATACONTROL_ERROR_INVALID_PARAMETER;
 	}
 
-	// Check size of arguments
-	long long arg_size = 0;
+	/* Check size of arguments */
 	bundle_foreach((bundle*)update_data, bundle_foreach_check_arg_size_cb, &arg_size);
 	arg_size += strlen(provider->data_id) * sizeof(wchar_t);
 	if (arg_size > MAX_REQUEST_ARGUMENT_SIZE)
@@ -1230,87 +1209,93 @@ datacontrol_sql_update(datacontrol_h provider, const bundle* update_data, const 
 		return DATACONTROL_ERROR_MAX_EXCEEDED;
 	}
 
-	int reqId = _datacontrol_create_request_id();
+	/* get appid, access */
+	ret = pkgmgrinfo_appinfo_get_datacontrol_info(provider->provider_id, "Sql", &provider_appid, &access);
+	if (ret != PMINFO_R_OK)
+	{
+		LOGE("unable to get sql data control information: %d", ret);
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
+	if (NULL != access && !strcmp(access, READ_ONLY)) {
+		LOGE("Provider has given [%s] permission only", access);
+		free(provider_appid);
+		free(access);
+		return DATACONTROL_ERROR_PERMISSION_DENIED;
+	}
+	if (access)
+		free(access);
 
-	char update_map_file[REQUEST_PATH_MAX] = {0, };
-	ret = snprintf(update_map_file, REQUEST_PATH_MAX, "%s%s%d", DATACONTROL_REQUEST_FILE_PREFIX, caller_app_id, reqId);
+	/* get pkgid */
+	provider_pkgid = __get_provider_pkgid(provider->provider_id);
+	if (provider_pkgid == NULL) {
+		LOGE("Unable to get the provider pkgid");
+		free(provider_appid);
+		return DATACONTROL_ERROR_IO_ERROR;
+	}
+
+	/* get map file  */
+	req_id = _datacontrol_create_request_id();
+	SECURE_LOGI("request id: %d", req_id);
+	ret = snprintf(update_map_file, REQUEST_PATH_MAX, "%s%s%d", DATACONTROL_REQUEST_FILE_PREFIX, caller_app_id, req_id);
 	if (ret < 0)
 	{
 		LOGE("unable to write formatted output to update_map_file: %d", errno);
+		free(provider_pkgid);
+		free(provider_appid);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
-
 	SECURE_LOGI("update_map_file : %s", update_map_file);
 
-	int fd = 0;
-	char *provider_pkgid = __get_provider_pkgid(provider->provider_id);
-	if (provider_pkgid == NULL) {
-		LOGE("Unable to get the provider pkgid");
-		return DATACONTROL_ERROR_IO_ERROR;
-	}
-
-	ret = security_server_shared_file_open(update_map_file, provider_pkgid, &fd);
-	if (ret == SECURITY_SERVER_API_ERROR_FILE_EXIST) {
-		SECURE_LOGE("The file(%s) already exist, delete and retry to open", update_map_file);
-		int ret_temp = security_server_shared_file_delete(update_map_file);
-		if (ret_temp != SECURITY_SERVER_API_SUCCESS) {
-			SECURE_LOGE("Delete the file(%s) is failed : %d", update_map_file, ret_temp);
-		} else {
-			ret = security_server_shared_file_open(update_map_file, provider_pkgid, &fd);
-		}
-	}
-
+	/* shared file open */
+	ret = _shared_file_open(update_map_file, provider_pkgid, provider_appid, &fd);
 	if (ret != SECURITY_SERVER_API_SUCCESS)
 	{
-		SECURE_LOGE("unable to open update_map file: %d", ret);
+		SECURE_LOGE("unable to open update_map_file: %d", ret);
 		free(provider_pkgid);
+		free(provider_appid);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
-
 	free(provider_pkgid);
+	free(provider_appid);
 
-	int count = bundle_get_count((bundle*)update_data);
+	count = bundle_get_count((bundle*)update_data);
+	SECURE_LOGI("Update column counts: %d", count);
 	bundle_foreach((bundle*)update_data, bundle_foreach_cb, &fd);
 
 	fsync(fd);
 	close(fd);
 
-	bundle *b = bundle_create();
+	b = bundle_create();
 	if (!b)
 	{
 		LOGE("unable to create bundle: %d", errno);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
-
 	bundle_add_str(b, OSP_K_DATACONTROL_PROVIDER, provider->provider_id);
 	bundle_add_str(b, OSP_K_DATACONTROL_DATA, provider->data_id);
-
-	char update_column_count[MAX_LEN_DATACONTROL_COLUMN_COUNT] = {0, };
 	ret = snprintf(update_column_count, MAX_LEN_DATACONTROL_COLUMN_COUNT, "%d", count);
 	if (ret < 0)
 	{
-		LOGE("unable to convert update col count to string: %d", errno);
+		LOGE("unable to convert insert column count to string: %d", errno);
 		bundle_free(b);
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
-
-	const char* arg_list[4];
-	arg_list[0] = provider->data_id; // list(0): data ID
+	arg_list[0] = provider->data_id; /* list(0): data ID */
 	arg_list[1] = update_column_count;
 	arg_list[2] = update_map_file;
 	arg_list[3] = where;
 
 	bundle_add_str_array(b, OSP_K_ARG, arg_list, 4);
 
-	*request_id = reqId;
-
-	ret = datacontrol_sql_request_provider(provider, DATACONTROL_TYPE_SQL_UPDATE, b, reqId);
+	/* Set the request id */
+	*request_id = req_id;
+	ret = datacontrol_sql_request_provider(provider, DATACONTROL_TYPE_SQL_UPDATE, b, req_id);
 	if (ret != DATACONTROL_ERROR_NONE)
 	{
 		ret = security_server_shared_file_delete(update_map_file);
 		if (ret != SECURITY_SERVER_API_SUCCESS)
 		{
-			SECURE_LOGE("unable to remove the update_map file: %d", ret);
+			SECURE_LOGE("unable to remove the update_map_file: %d", ret);
 		}
 	}
 	bundle_free(b);

@@ -265,6 +265,7 @@ __set_select_result(bundle* b, const char* path, void* data)
 	int ret = 0;
 	int fd = 0;
 	char *client_pkgid = NULL;
+	const char *caller_appid = NULL;
 
 	if (b ==NULL || path == NULL || data == NULL)
 	{
@@ -290,17 +291,8 @@ __set_select_result(bundle* b, const char* path, void* data)
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
-	ret = security_server_shared_file_open(path, client_pkgid, &fd);
-	if (ret == SECURITY_SERVER_API_ERROR_FILE_EXIST) {
-		SECURE_LOGE("The file(%s) already exist, delete and retry to open", path);
-		int ret_temp = security_server_shared_file_delete(path);
-		if (ret_temp != SECURITY_SERVER_API_SUCCESS) {
-			SECURE_LOGE("Delete the file(%s) is failed : %d", path, ret_temp);
-		} else {
-			ret = security_server_shared_file_open(path, client_pkgid, &fd);
-		}
-	}
-
+	caller_appid = bundle_get_val(b, AUL_K_CALLER_APPID);
+	ret = _shared_file_open(path, client_pkgid, caller_appid, &fd);
 	if (ret != SECURITY_SERVER_API_SUCCESS)
 	{
 		SECURE_LOGE("Opening the file(%s) is failed : %d", path, ret);
@@ -492,6 +484,7 @@ __set_get_value_result(bundle *b, const char* path, char **value_list)
 	int remain_count = value_count - current_offset;
 	remain_count = (remain_count > 0) ? remain_count : 0;	// round off to zero if the negative num is found
 	int add_value_count = (count_per_page > remain_count) ? remain_count : count_per_page;
+	const char *caller_appid = NULL;
 
 	if (add_value_count < value_count)
 	{
@@ -513,17 +506,8 @@ __set_get_value_result(bundle *b, const char* path, char **value_list)
 		return DATACONTROL_ERROR_IO_ERROR;
 	}
 
-	ret = security_server_shared_file_open(path, client_pkgid, &fd);
-	if (ret == SECURITY_SERVER_API_ERROR_FILE_EXIST) {
-		SECURE_LOGE("The file(%s) already exist, delete and retry to open", path);
-		int ret_temp = security_server_shared_file_delete(path);
-		if (ret_temp != SECURITY_SERVER_API_SUCCESS) {
-			SECURE_LOGE("Delete the file(%s) is failed : %d", path, ret_temp);
-		} else {
-			ret = security_server_shared_file_open(path, client_pkgid, &fd);
-		}
-	}
-
+	caller_appid = bundle_get_val(b, AUL_K_CALLER_APPID);
+	ret = _shared_file_open(path, client_pkgid, caller_appid, &fd);
 	if (ret != SECURITY_SERVER_API_SUCCESS)
 	{
 		SECURE_LOGE("Opening the file(%s) is failed : %d", path, ret);

@@ -80,5 +80,7 @@ datacontrol_sql_set_cursor(const char *path);
 int
 _datacontrol_create_request_id(void);
 
+int _shared_file_open(const char *insert_map_file, char *pkgid, const char *appid, int *fd);
+
 #endif /* _APPFW_DATA_CONTROL_INTERNAL_H_ */
 
